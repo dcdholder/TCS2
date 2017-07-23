@@ -1,159 +1,237 @@
-#initial implementation takes pre-numbered cards, uses the queue-based merge source technique to sort them
+#initial implementation takes pre-numbered cards, uses the queue-based merge main technique to sort them
 #output is the final ordering, and the array of instructions required to sort the cards
 import collections
 import random
 import math
 
-class CardSorter:
-    sourceHopperSize = 1000
+#acts as a stack
+class CardTray:
+    capacity = 1024
 
-    @staticmethod
-    def cardSortDirections(cards):
-        #the physical mergesort is faster when the card/group diversity is high
-        #the physical "quicksort" is much faster when you only have a few sorting groups
-        if max(cards)>2**(math.ceil(math.log2(CardSorter.sourceHopperSize))-2):
-            return CardSorter.cardMergeSortDirections(cards)
+    def __init__(self):
+        self.cardList = []
+
+    def size(self):
+        return len(self.cardList)
+
+    def push(self,card):
+        if len(self.cardList)!=CardTray.capacity:
+            self.cardList.append(card)
         else:
-            #return CardSorter.cardQuickSortDirections(cards)
-            return CardSorter.cardMergeSortDirections(cards)
+            raise ValueError("Cannot add card to full card tray")
+
+    def pop(self):
+        return self.cardList.pop()
+
+    def peekAll(self):
+        return list(self.cardList)
+
+    def withdrawAll(self):
+        returnList = list(self.cardList)
+        self.cardList = []
+
+        return returnList
+
+    def replaceAll(self,cards):
+        self.cardList = list(cards)
+
+class CardSorter:
+    def __init__(self):
+        self.trays = CardSorter.genTrays()
 
     @staticmethod
-    def cardMergeSortDirections(cards):
-        sortingDecks = {};
-        for sortingDeckLabel in ["source","sortA","sortB"]:
-            sortingDecks[sortingDeckLabel] = collections.deque()
+    def genTrays():
+        return {"main": CardTray(), "A": CardTray(), "B": CardTray()}
 
-        #create initial subdecks of one card each
-        for cardIndex in range(len(cards)):
-            sortingDecks["source"].appendleft(SubDeck([cards[cardIndex]]))
+    @staticmethod
+    def cardSortDirections(sortScores):
+        virtualTrays = CardSorter.genTrays()
 
-        #essentially a queue-based merge sort
         directions = []
-        while len(sortingDecks["source"])!=1:
-            #evenly divide up subDecks between sortA and sortB
-            for subDeckIndex in range(len(sortingDecks["source"])):
-                subDeck = sortingDecks["source"].pop()
 
-                direction = ""
-                if subDeckIndex%2==0:
-                    sortingDecks["sortA"].appendleft(subDeck)
-                    direction = "To A"
+        virtualTrays["main"].push(SubDeck(sortScores))
+        while True: #sort is done when SubDecks are one card each
+            subDeckExistsWithCardinalityGreaterThan1 = False
+            for subDeck in virtualTrays["main"].peekAll():
+                if subDeck.cardinalityGreaterThan1():
+                    subDeckExistsWithCardinalityGreaterThan1 = True
+
+            if not subDeckExistsWithCardinalityGreaterThan1:
+                break
+
+            parity = 0
+            for subDeckIndex in range(virtualTrays["main"].size()):
+                subDeck = virtualTrays["main"].pop()
+
+                if subDeck.cardinalityGreaterThan1():
+                    [subDeckA, subDeckB, splitDirections] = subDeck.split(parity)
+
+                    directions.extend(splitDirections)
+
+                    if parity%2==0: #no need to change parity when the number of operations is even
+                        virtualTrays["A"].push(subDeckA)
+                        virtualTrays["B"].push(subDeckB)
+                    else:
+                        virtualTrays["B"].push(subDeckA)
+                        virtualTrays["A"].push(subDeckB)
                 else:
-                    sortingDecks["sortB"].appendleft(subDeck)
-                    direction = "To B"
+                    if parity%2==0:
+                        virtualTrays["A"].push(subDeck)
+                        for i in range(subDeck.size()):
+                            directions.append("To A")
+                    else:
+                        virtualTrays["B"].push(subDeck)
+                        for i in range(subDeck.size()):
+                            directions.append("To B")
 
-                for cardIndex in range(len(subDeck)):
-                    directions.append(direction)
+                    parity+=1
 
-            #combine sorted subDeck pairs, one pair at a time
-            while len(sortingDecks["sortB"])!=0: #sortB will always have the same amount of subdecks or less than sortA
-                subDeckA = sortingDecks["sortA"].pop()
-                subDeckB = sortingDecks["sortB"].pop()
-                [combinedSubDeck,combiningDirections] = subDeckA.combine(subDeckB)
-                directions += combiningDirections
-                sortingDecks["source"].appendleft(combinedSubDeck)
+            #withdraw subdecks from A and B in the reverse order that they were placed in
+            while virtualTrays["A"].size()>0:
+                if virtualTrays["A"].size()==virtualTrays["B"].size():
+                    subDeck = virtualTrays["B"].pop()
+                    subDeck.reverse() #cards pulled from subdeck form a reversed version of the subdeck when moved to a new stack
+                    virtualTrays["main"].push(subDeck)
 
-            #handle unpaired subDeck, if one exists
-            if len(sortingDecks["sortA"])!=0:
-                subDeckA = sortingDecks["sortA"].pop()
-                sortingDecks["source"].appendleft(subDeckA)
-                for i in range(len(subDeckA)):
-                    directions.append("From A")
+                    for i in range(subDeck.size()):
+                        directions.append("From B")
+                else:
+                    subDeck = virtualTrays["A"].pop()
+                    subDeck.reverse()
+                    virtualTrays["main"].push(subDeck)
 
-        finalSubDeck = sortingDecks["source"].pop()
-        outputCards = list(finalSubDeck)
+                    for i in range(subDeck.size()):
+                        directions.append("From A")
 
-        return [outputCards,directions]
-
-    @staticmethod
-    def cardQuickSortDirections(cards): #TODO: implement this
-        pass
+        return directions
 
     #exists mainly for testing purposes
-    @staticmethod
-    def cardSortFromDirections(cards,directions):
-        sortHopperSize = 2**(math.ceil(math.log2(CardSorter.sourceHopperSize))-1) #e.g. 512 for source hopper size of 1000
-
-        sortingDecks = {};
-        sortingDecks["source"] = collections.deque([],CardSorter.sourceHopperSize)
-        sortingDecks["sortA"]  = collections.deque([],sortHopperSize)
-        sortingDecks["sortB"]  = collections.deque([],sortHopperSize)
-
-        for cardIndex in range(len(cards)):
-            sortingDecks["source"].appendleft(cards[cardIndex])
+    def cardSortFromDirections(self,cards,directions):
+        self.trays["main"].replaceAll(cards)
 
         for i in range(len(directions)):
-            (sortingDecks["source"])
             if directions[i]=="To A":
-                sortingDecks["sortA"].appendleft(sortingDecks["source"].pop())
+                self.trays["A"].push(self.trays["main"].pop())
             elif directions[i]=="To B":
-                sortingDecks["sortB"].appendleft(sortingDecks["source"].pop())
+                self.trays["B"].push(self.trays["main"].pop())
             elif directions[i]=="From A":
-                sortingDecks["source"].appendleft(sortingDecks["sortA"].pop())
+                self.trays["main"].push(self.trays["A"].pop())
             elif directions[i]=="From B":
-                sortingDecks["source"].appendleft(sortingDecks["sortB"].pop())
+                self.trays["main"].push(self.trays["B"].pop())
 
-        return list(sortingDecks["source"])
+        return self.trays["main"].peekAll()
 
-class SubDeck(collections.deque):
-    def combine(self,subDeckB):
-        combinedSubDeck = SubDeck()
-        directions = []
-        while len(self)>0 or len(subDeckB)>0:
-            if len(self)>0 and len(subDeckB)>0:
-                if self[len(self)-1]>=subDeckB[len(subDeckB)-1]:
-                    combinedSubDeck.appendleft(self.pop())
-                    directions.append("From A")
+    def cardSort(self,cards,sortScores):
+        directions = CardSorter.cardSortDirections(sortScores)
+        return self.cardSortFromDirections(cards,directions)
+
+class SubDeck():
+    def __init__(self,cardList):
+        if len(cardList)>0:
+            self.cardList = list(cardList)
+        else:
+            raise ValueError("SubDeck must contain at least one card")
+
+    def size(self):
+        return len(self.cardList)
+
+    def cardinalityGreaterThan1(self):
+        sampleCard = self.cardList[0]
+
+        for card in self.cardList:
+            if card!=sampleCard:
+                return True
+
+        return False
+
+    def reverse(self):
+        newCards = []
+
+        for i in range(len(self.cardList)):
+            newCards.append(self.cardList[len(self.cardList)-i-1])
+
+        self.cardList = newCards
+
+    def split(self,parity):
+        if self.size()>1:
+            pivot = min(self.cardList)+(max(self.cardList)-min(self.cardList))/2
+
+            directions = []
+
+            cardListA = []
+            cardListB = []
+            for i in range(len(self.cardList)): #reverse order since push/pop are done from the highest index
+                card = self.cardList[len(self.cardList)-i-1]
+                if card<pivot:
+                    cardListA.append(card)
+                    if parity%2==0:
+                        directions.append("To A")
+                    else:
+                        directions.append("To B")
                 else:
-                    combinedSubDeck.appendleft(subDeckB.pop())
-                    directions.append("From B")
-            elif len(self)>0:
-                combinedSubDeck.appendleft(self.pop())
-                directions.append("From A")
-            elif len(subDeckB)>0:
-                combinedSubDeck.appendleft(subDeckB.pop())
-                directions.append("From B")
+                    cardListB.append(card)
+                    if parity%2==0:
+                        directions.append("To B")
+                    else:
+                        directions.append("To A")
 
-        return [combinedSubDeck,directions]
+            subDeckA = SubDeck(cardListA)
+            subDeckB = SubDeck(cardListB)
+
+            return [subDeckA,subDeckB,directions]
+        else:
+            raise ValueError("Cannot split SubDeck of cardinality 1")
 
 #both tests have complexity n^2logn where n=numCardsMax
 class TestCardSorter:
     @staticmethod
-    def arrayOfDecksWithSizeFrom1ToMax():
-        numCardsMax  = 1000
-        cardValueMax = 10000
-
+    def arrayOfDecksWithUniqueElementsAndSizeFrom1ToMax(numCardsMax):
         decks = []
         for numCards in range(1,numCardsMax+1):
-            inputCards = []
-            for i in range(numCards):
-                inputCards.append(random.randint(1,cardValueMax))
+            inputCards = list(range(1,numCards+1))
+            random.shuffle(inputCards)
 
             decks.append(inputCards)
 
         return decks
 
-    #verify the ordering generated by CardSorter.cardSortDirections
     @staticmethod
-    def testRangeOfDeckSizesTheoreticalOrdering():
-        decks = TestCardSorter.arrayOfDecksWithSizeFrom1ToMax()
+    def arrayOfDecksWithDuplicatedElementsAndSizeFrom1ToMax(numCardsMax):
+        duplicatedDecks = []
 
-        for i in range(len(decks)):
-            [outputCards,directions] = CardSorter.cardSortDirections(decks[i])
+        uniqueDecks = TestCardSorter.arrayOfDecksWithUniqueElementsAndSizeFrom1ToMax(numCardsMax//2)
+        for uniqueDeck in uniqueDecks:
+            duplicatedDecks.append(uniqueDeck + uniqueDeck) #add two copies together
+            random.shuffle(duplicatedDecks[len(duplicatedDecks)-1])
 
-            #confirm that the output ordering is the same as that generated by a built-in sorting method
-            if outputCards!=sorted(decks[i]):
-                raise ValueError("Output did not match input sorted with \'sorted()\'")
+        return duplicatedDecks
 
     #verify the ordering generated by CardSorter.cardSortFromDirections
     @staticmethod
-    def testRangeOfDeckSizesActualOrdering():
-        decks = TestCardSorter.arrayOfDecksWithSizeFrom1ToMax()
+    def testSortSpeedAndAccuracyUnique():
+        decks = TestCardSorter.arrayOfDecksWithUniqueElementsAndSizeFrom1ToMax(1024)
 
         for i in range(len(decks)):
-            [predictedOutputCards,directions] = CardSorter.cardSortDirections(decks[i])
-            actualOutputCards                 = CardSorter.cardSortFromDirections(decks[i],directions)
+            cardSorter  = CardSorter()
+            outputCards = cardSorter.cardSort(decks[i],decks[i])
 
-            #confirm that the output ordering is the same as predicted by CardSortDirections
-            if actualOutputCards!=predictedOutputCards:
-                raise ValueError("Predicted output did not match actual sorter output.")
+            reverseSortedDeck = sorted(decks[i])
+            reverseSortedDeck.reverse()
+
+            #confirm that the output ordering is the same as that generated by a built-in sorting method
+            if outputCards!=reverseSortedDeck:
+                raise ValueError("Output did not match input sorted with \'sorted()\'")
+
+    def testSortSpeedAndAccuracyDuplicated():
+        decks = TestCardSorter.arrayOfDecksWithDuplicatedElementsAndSizeFrom1ToMax(1024)
+
+        for i in range(len(decks)):
+            cardSorter  = CardSorter()
+            outputCards = cardSorter.cardSort(decks[i],decks[i])
+
+            reverseSortedDeck = sorted(decks[i])
+            reverseSortedDeck.reverse()
+
+            #confirm that the output ordering is the same as that generated by a built-in sorting method
+            if outputCards!=reverseSortedDeck:
+                raise ValueError("Output did not match input sorted with \'sorted()\'")
