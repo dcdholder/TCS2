@@ -3,12 +3,12 @@ try:
 except:
     from PIL import Image
 
-import thread
+import threading
 import pytesseract
 
 #keep working on recognition until it can run through the entire Kaladar set with 100% accuracy
-#shit like 'Woodweaver's Puzzleknot' is gonna keep me up at night
-class Recognition:
+#names like 'Woodweaver's Puzzleknot' are gonna keep me up at night
+class Recognizer:
     NUM_CORES = 4
 
     def recognizeAllCards():
@@ -52,6 +52,6 @@ class Recognition:
 
     @staticmethod
     def ocrJob(imageFilename):
-        tesseractConfig =
+        tesseractConfig = None #TODO: need to fill this in
 
         return pytesseract.image_to_string(Image.open(imageFilename), lang='en', config=tesseractConfig)

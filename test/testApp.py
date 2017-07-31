@@ -9,6 +9,8 @@ class TestApp(unittest.TestCase):
         self.app = app.cardSorterServer.test_client()
         self.startPayload = json.dumps({"A": "B"})
         self.contentType  = 'application/json'
+        #TODO: once mocks for Device and Recognizer are available, feed them to SortJob instead of mocking SortJob
+        #maybe even dependency-inject by replacing app.sortJob with SortJob(MockDevice(),MockRecognizer())
         app.sortJob = MockSortJob()
 
     def testStartPositive(self):
@@ -93,10 +95,13 @@ class MockSortJob:
     def __init__(self):
         self.paused    = False
         self.cancelled = False
-        self.stopped   = True
+        self.stopped   = False
+        self.finished  = True
 
     def start(self,sortParameters):
-        self.stopped = False
+        self.finished = False
+        self.paused   = False
+        self.stopped  = False
 
     def pause(self):
         self.paused = True
@@ -114,7 +119,7 @@ class MockSortJob:
         self.cancelled = True
 
     def inProgress(self):
-        return not self.stopped
+        return not self.stopped and not self.finished
 
 if __name__ == "__main__":
     unittest.main()

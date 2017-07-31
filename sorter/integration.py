@@ -1,15 +1,141 @@
 #I suspect that it's safe to use threading here, and processes in the intensive parts of recognition.py
 #you shouldn't stack more jobs if there are already two, unless the job you're stacking is an update job, which may be the third job in the stack
 import time
-import threading
+from threading import Thread,Event
+
+from sorter.device      import Device
+from sorter.recognition import Recognizer
 
 class SortJob:
     def __init__(self):
         self.paused    = False
         self.cancelled = False
-        self.stopped   = True
+        self.stopped   = False
+        self.finished  = True
 
-    def start(sortParameters): #jobs must be LIFO
+        self.startDate  = None
+        self.pauseDate  = None
+        self.pausedTime = None
+
+        self.progress = "Waiting for next job."
+
+        self.stateFlag = Event()
+
+        self.device     = Device()
+        self.recognizer = Recognizer()
+
+        self.sortJobThread = None
+
+    def start(sortParameters):
+        if self.finished and not self.stopped:
+            self.finished = False
+
+            self.sortJobThread = SortJobThread(self.stateFlag,self.paused,self.cancelled,self.stopped,self.finished,self.progress,self.device,self.recognizer,sortParameters)
+            self.sortJobThread.start()
+
+            self.startDate  = datetime.datetime.now()
+            self.pausedTime = self.startDate - self.startDate
+        else:
+            raise ValueError("Can't start next job before previous job finished, or device cleaned up and reset.")
+
+    def pause():
+        if not self.stopped and not self.finished:
+            if not self.paused:
+                self.paused = True
+                self.stateFlag.set()
+
+                self.pauseDate = datetime.datetime.now()
+            else:
+                raise ValueError("Cannot pause a paused job.")
+        else:
+            raise ValueError("Cannot pause a stopped or finished job.")
+
+    def resume():
+        if not self.stopped and not self.finished:
+            if self.paused:
+                self.paused = False
+                self.stateFlag.set()
+
+                self.pausedTime += datetime.datetime.now() - self.pauseDate
+            else:
+                raise ValueError("Cannot resume a running job.")
+        else:
+            raise ValueError("Cannot resume a stopped or finished job.")
+
+    def getUpdate():
+        if not self.stopped:
+            update = {}
+            update["progress"]       = self.progress
+            update["operatingState"] = self.getOperatingState()
+            update["timeStats"]      = self.getTimeStats()
+
+            return update
+        else:
+            raise ValueError("Cannot get execution update from a stopped job.")
+
+    def getOperatingState():
+        runStates = []
+        if not self.stopped and not self.finished:
+            if self.paused:
+                runStates.append("Paused")
+            else:
+                runStates.append("Running")
+
+            if self.cancelled:
+                runStates.append("Cancelled")
+
+        if self.stopped:
+            runStates.append("Stopped")
+        elif self.finished:
+            runStates.append("Finished")
+
+        return runStates
+
+    def getTimeStats():
+        timeStats = {}
+        timeStats["startDate"]       = self.startDate
+        timeStats["expectedEndDate"] = self.expectedEndDate()
+
+        timeStats["elapsedTime"]           = datetime.datetime.now() - self.startDate
+        timeStats["expectedRemainingTime"] = timeStats["expectedEndDate"] - datetime.datetime.now()
+        timeStats["runningTime"]           = timeStats["elapsedTime"] - self.pausedTime
+        timeStats["pausedTime"]            = self.pausedTime
+
+        return timeStats
+
+    def inProgress():
+        return not self.stopped and not self.finished
+
+    def cancel():
+        if not self.stopped and not self.finished:
+            self.cancelled = True
+            self.stateFlag.set()
+        else:
+            raise ValueError("Cannot cancel a stopped or finished job.")
+
+    def stop():
+        if not self.finished:
+            self.paused    = False
+            self.cancelled = False
+            self.stopped   = True
+            self.stateFlag.set()
+            self.sortJobThread.join()
+        else:
+            raise ValueError("Cannot stop finished job.")
+
+#TODO: this needs to be rewritten next
+class SortJobThread(Thread):
+    def __init__(self,stateFlag,paused,cancelled,stopped,finished,device,recognizer,sortParameters):
+        self.stateFlag      = stateFlag
+        self.paused         = paused
+        self.cancelled      = cancelled
+        self.stopped        = stopped
+        self.finished       = finished
+        self.device         = device
+        self.recognizer     = recognizer
+        self.sortParameters = sortParameters
+
+    def run(): #jobs must be LIFO
         sleepTime = 0.01
 
         trays = {}
@@ -95,29 +221,11 @@ class SortJob:
 
         return
 
-    def pause(self):
-        pass
-
-    def resume(self):
-        pass
-
-    def getUpdate(self):
-        pass
-
-    def stop(self):
-        pass
-
-    def cancel(self):
-        pass
-
-    def inProgress(self):
-        pass
-
-class WorkerThread(threading.Thread):
+class WorkerThread(Thread):
     pauseTime = 0.05
 
     def __init__(self):
-        threading.Thread.__init__(self,updateTrigger)
+        Thread.__init__(self,updateTrigger)
         self.pausing  = False #'pause' temporarily pauses the execution loop
         self.previouslyPaused = False
         self.undoing  = False #'undo' entails stopping the thread once the work has been 'undone' (i.e. physical sorting)
