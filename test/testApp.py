@@ -9,6 +9,7 @@ class TestApp(unittest.TestCase):
         self.app = app.cardSorterServer.test_client()
         self.startPayload = json.dumps({"A": "B"})
         self.contentType  = 'application/json'
+        app.sortJob = MockSortJob()
 
     def testStartPositive(self):
         response = self.app.post('/job/start', data=self.startPayload, content_type=self.contentType)
@@ -86,7 +87,34 @@ class TestApp(unittest.TestCase):
         self.assertFalse(status.is_success(response.status_code))
 
     def tearDown(self):
-        app.sortJob = None #class variable isn't automatically cleaned up between testruns
+        app.sortJob.stop()
+
+class MockSortJob:
+    def __init__(self):
+        self.paused    = False
+        self.cancelled = False
+        self.stopped   = True
+
+    def start(self,sortParameters):
+        self.stopped = False
+
+    def pause(self):
+        self.paused = True
+
+    def resume(self):
+        self.paused = False
+
+    def getUpdate(self):
+        return {"status": "OK"}
+
+    def stop(self):
+        self.stopped = True
+
+    def cancel(self):
+        self.cancelled = True
+
+    def inProgress(self):
+        return not self.stopped
 
 if __name__ == "__main__":
     unittest.main()

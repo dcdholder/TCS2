@@ -1,9 +1,15 @@
 #I suspect that it's safe to use threading here, and processes in the intensive parts of recognition.py
 #you shouldn't stack more jobs if there are already two, unless the job you're stacking is an update job, which may be the third job in the stack
 import time
+import threading
 
-class Operation:
-    def runJob(jobs,updateOutput): #jobs must be LIFO
+class SortJob:
+    def __init__(self):
+        self.paused    = False
+        self.cancelled = False
+        self.stopped   = True
+
+    def start(sortParameters): #jobs must be LIFO
         sleepTime = 0.01
 
         trays = {}
@@ -15,7 +21,7 @@ class Operation:
         cardPhotoFilenames      = queue.Queue()
         identifiedCards         = queue.Queue()
 
-        startTime =
+        #startTime =
 
         photographyInstructions.put("PHOTO")
 
@@ -89,6 +95,24 @@ class Operation:
 
         return
 
+    def pause(self):
+        pass
+
+    def resume(self):
+        pass
+
+    def getUpdate(self):
+        pass
+
+    def stop(self):
+        pass
+
+    def cancel(self):
+        pass
+
+    def inProgress(self):
+        pass
+
 class WorkerThread(threading.Thread):
     pauseTime = 0.05
 
@@ -131,11 +155,11 @@ class PhotographyThread(WorkerThread):
             updateFromParent.clear()
 
             if self.photographCardsThread!=None:
-                if not self.photographCardsThread.is_alive()
+                if not self.photographCardsThread.is_alive():
                     self.photographCardsThread=None
                     self.returnToInputTrayThread = self.sortingDevice.startReturnToInputTrayThread(childUpdate)
             elif self.returnToInputTrayThread!=None:
-                if not self.returnToInputTrayThread.is_alive()
+                if not self.returnToInputTrayThread.is_alive():
                     return
 
             time.sleep(super.pauseTime)
@@ -182,9 +206,8 @@ class PhotographyThread(WorkerThread):
         elif self.returnToInputTrayThread!=None:
             self.returnToInputTrayThread.join()
 
-class RecognitionComputeThread(WorkerThread):
+#class RecognitionComputeThread(WorkerThread):
 
-class PhotographCardsThread(WorkerThread):
+#class PhotographCardsThread(WorkerThread):
 
-class ReturnToInputTrayThread(WorkerThread):
-    def __init__(self,sortingDevice):
+#class ReturnToInputTrayThread(WorkerThread):
