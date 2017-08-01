@@ -17,9 +17,10 @@ class SortJob:
         self.pauseDate  = None
         self.pausedTime = None
 
-        self.progress = "Waiting for next job."
+        self.progress = "Waiting for new job."
 
-        self.stateFlag = Event()
+        self.stateFlag    = Event()
+        self.responseFlag = Event()
 
         self.device     = Device()
         self.recognizer = Recognizer()
@@ -30,7 +31,7 @@ class SortJob:
         if self.finished and not self.stopped:
             self.finished = False
 
-            self.sortJobThread = SortJobThread(self.stateFlag,self.paused,self.cancelled,self.stopped,self.finished,self.progress,self.device,self.recognizer,sortParameters)
+            self.sortJobThread = SortJobThread(self.stateFlag,self.responseFlag,self.paused,self.cancelled,self.stopped,self.finished,self.progress,self.device,self.recognizer,sortParameters)
             self.sortJobThread.start()
 
             self.startDate  = datetime.datetime.now()
@@ -42,7 +43,7 @@ class SortJob:
         if not self.stopped and not self.finished:
             if not self.paused:
                 self.paused = True
-                self.stateFlag.set()
+                self.notifyChildOfStateChange()
 
                 self.pauseDate = datetime.datetime.now()
             else:
@@ -54,7 +55,7 @@ class SortJob:
         if not self.stopped and not self.finished:
             if self.paused:
                 self.paused = False
-                self.stateFlag.set()
+                self.notifyChildOfStateChange()
 
                 self.pausedTime += datetime.datetime.now() - self.pauseDate
             else:
@@ -109,7 +110,7 @@ class SortJob:
     def cancel():
         if not self.stopped and not self.finished:
             self.cancelled = True
-            self.stateFlag.set()
+            self.notifyChildOfStateChange()
         else:
             raise ValueError("Cannot cancel a stopped or finished job.")
 
@@ -118,15 +119,23 @@ class SortJob:
             self.paused    = False
             self.cancelled = False
             self.stopped   = True
-            self.stateFlag.set()
+            self.notifyChildOfStateChange()
             self.sortJobThread.join()
         else:
             raise ValueError("Cannot stop finished job.")
 
+    #reduce likelihood of race conditions
+    def notifyChildOfStateChange():
+        self.stateFlag.set()
+        self.responseFlag.wait()
+        self.responseFlag.clear()
+
 #TODO: this needs to be rewritten next
 class SortJobThread(Thread):
-    def __init__(self,stateFlag,paused,cancelled,stopped,finished,device,recognizer,sortParameters):
+    def __init__(self,stateFlag,responseFlag,paused,cancelled,stopped,finished,progress,device,recognizer,sortParameters):
         self.stateFlag      = stateFlag
+        self.responseFlag   = responseFlag
+
         self.paused         = paused
         self.cancelled      = cancelled
         self.stopped        = stopped
@@ -135,187 +144,60 @@ class SortJobThread(Thread):
         self.recognizer     = recognizer
         self.sortParameters = sortParameters
 
-    def run(): #jobs must be LIFO
-        sleepTime = 0.01
+        self.previouslyPaused    = False
+        self.previouslyCancelled = False
 
-        trays = {}
-        tray["main"] = queue.Queue()
-        tray["A"]    = queue.Queue()
-        tray["B"]    = queue.Queue()
+        self.progress = progress
 
-        photographyInstructions = queue.Queue()
-        cardPhotoFilenames      = queue.Queue()
-        identifiedCards         = queue.Queue()
+        self.sleepTime = 20.0
 
-        #startTime =
+        self.device     = device
+        self.recognizer = recognizer
 
-        photographyInstructions.put("PHOTO")
+        self.photographyQueue = Queue.queue()
+        self.recognitionQueue = Queue.queue()
 
-        photographyThread        = Thread(target=Operation.photographAll, args=[cardPhotoFilenames])
-        recognitionComputeThread = Thread(target=Recognition.recognizeImages, args=[cardPhotoFilenames,identifiedCards])
+    def run():
+        device.photographAll(self.photographyQueue)
+        recognizer.recognizeAll(self.photographyQueue,self.recognitionQueue)
 
         while True:
-            #first check if there have been any new commands picked up from Flask
-            if jobs.qsize()!=1:
-                newJob = jobs.get()
-                if newJob.type()=="pause": #allow the recognition thread to continue processing during pause
-                    photographyThread.pause = True
-                    updateChild.set()
-                elif newJob.type()=="resume":
-                    if photographyThread.pause:
-                        photographyThread.pause = False
-                        updateChild.set()
-                elif newJob.type()=="cancel": #returns cards to the input bin
-                    photographyThread.undo = True
-                    updateChild.set()
-                elif newJob.type()=="emergency stop": #does not return cards to the input bin
-                    photographyThread.stop        = True
-                    recognitionComputeThread.stop = True
-
-                    updateChild.set()
-
-                    photographyThread.join()
-                    recognitionComputeThread.join()
-
-                    return
-            elif not photographyInstructions.is_alive():
+            if device.finished and recognizer.finished:
                 break
-            else:
-                time.sleep(sleepTime)
 
-        #confirm to ourselves that both threads are finished
-        #TODO: add logging so we know whether these joins get completed
-        photographyThread.join()
-        recognitionComputeThread.join()
+            self.notFinishedLoopBody()
 
-        #generate a sort ordering from the identified cards
-        sortScores = Ordering.generateSortScores(list(identifiedCards))
+        device.sort(Ordering.generateSortScores(self.sortParameters,self.recognitionQueue))
 
-        #open a new physical sort thread using that sort ordering
-        physicalSortThread = Thread(target=Operation.sortCards, args=[sortScores])
         while True:
-            if jobs.qsize()!=1:
-                newJob = jobs.get()
-                if newJob.type()=="pause": #allow the recognition thread to continue processing during pause
-                    physicalSortThread.pause = True
-                    updateChild.set()
-                elif newJob.type()=="resume":
-                    if physicalSortThread.pause:
-                        physicalSortThread.pause = False
-                        updateChild.set()
-                elif newJob.type()=="cancel": #returns cards to the input bin
-                    if physicalSortThread.undo:
-                        physicalSortThread.undo = True
-                        updateChild.set()
-                elif newJob.type()=="emergency stop": #does not return cards to the input bin
-                    physicalSortThread.stop = True
-                    updateChild.set()
-
-                    physicalSortThread.join()
-
-                    return
-            elif not physicalSortThread.is_alive():
+            if device.finished:
                 break
-            else:
-                time.sleep(sleepTime)
 
-        return
+            self.notFinishedLoopBody()
 
-class WorkerThread(Thread):
-    pauseTime = 0.05
+    def onStateChange():
+        stateFlag.clear()
 
-    def __init__(self):
-        Thread.__init__(self,updateTrigger)
-        self.pausing  = False #'pause' temporarily pauses the execution loop
-        self.previouslyPaused = False
-        self.undoing  = False #'undo' entails stopping the thread once the work has been 'undone' (i.e. physical sorting)
-        self.stopping = False #'stop' entails stopping the thread immediately
+        if self.paused and not self.previouslyPaused:
+            self.previouslyPaused = True
+            device.pause()
+        elif not self.paused and self.previouslyPaused:
+            self.previouslyPaused = False
+            device.resume()
 
-        self.updateTrigger = updateTrigger
+        if self.cancelled and not self.previouslyCancelled:
+            self.previouslyCancelled = True
+            device.returnAllToInputTray()
+        elif self.stopped:
+            device.stop()
+            recognizer.stop()
 
-#handle the photography of all cards in the input tray, and the return of all cards from the sorting tray back to the input tray
-#handle the 'pause', 'undo' and 'stop' interrupts
-class PhotographyThread(WorkerThread):
-    def __init__(self,updateFromParent,sortingDevice,cardPhotoFilenames):
-        super().__init__(self,updateTrigger)
-        self.sortingDevice           = sortingDevice
-        self.cardPhotoFilenames      = cardPhotoFilenames
-        self.returnToInputTrayThread = None
-        self.photographCardsThread   = self.sortingDevice.startPhotographCardsThread(updateFromChild,cardPhotoFilenames)
+        responseFlag.set()
 
-        self.childUpdate = threading.Event()
+    def notFinishedLoopBody():
+        if stateFlag.is_set():
+            self.onStateChange()
 
-    def run(self,cardPhotoFilenames): #cardPhotoFilenames is a producer queue
-        while True:
-            if self.stopping and updateFromParent.is_set():
-                self.stop()
-                return
+        self.progress = device.getProgress() + '\n' + recognizer.getProgress()
 
-            if self.pausing and updateFromParent.is_set():
-                self.pause()
-
-            if not self.pausing and self.previouslyPaused and updateFromParent.is_set():
-                self.resume()
-
-            if self.undoing and updateFromParent.is_set():
-                self.undo()
-
-            updateFromParent.clear()
-
-            if self.photographCardsThread!=None:
-                if not self.photographCardsThread.is_alive():
-                    self.photographCardsThread=None
-                    self.returnToInputTrayThread = self.sortingDevice.startReturnToInputTrayThread(childUpdate)
-            elif self.returnToInputTrayThread!=None:
-                if not self.returnToInputTrayThread.is_alive():
-                    return
-
-            time.sleep(super.pauseTime)
-
-    def resume(self):
-        if self.photographCardsThread!=None:
-            returnToInputTrayThread.pausing = False
-        elif self.returnToInputTrayThread!=None:
-            returnToInputTrayThread.pausing = False
-
-        self.childUpdate.set()
-
-        self.previouslyPaused = False
-
-    def pause(self):
-        if self.photographCardsThread!=None:
-            returnToInputTrayThread.pausing = True
-        elif self.returnToInputTrayThread!=None:
-            returnToInputTrayThread.pausing = True
-
-        self.childUpdate.set()
-
-        self.previouslyPaused = True
-
-    def undo(self):
-        if photographCardsThread!=None: #check if 'undo' has already been called
-            self.photographCardsThread.stop()
-            if not self.photographCardsThread.is_alive():
-                self.photographCardsThread = None
-
-            if returnToInputTrayThread==None:
-                self.returnToInputTrayThread = self.sortingDevice.startReturnToInputTrayThread(childUpdate)
-
-    def stop(self):
-        if self.photographCardsThread!=None:
-            self.photographCardsThread.stopping = True
-        elif self.returnToInputTrayThread!=None:
-            self.returnToInputTrayThread.stopping = True
-
-        self.childUpdate.set()
-
-        if self.photographCardsThread!=None:
-            self.photographCardsThread.join()
-        elif self.returnToInputTrayThread!=None:
-            self.returnToInputTrayThread.join()
-
-#class RecognitionComputeThread(WorkerThread):
-
-#class PhotographCardsThread(WorkerThread):
-
-#class ReturnToInputTrayThread(WorkerThread):
+        sleep(self.sleepTime/1000.0)
