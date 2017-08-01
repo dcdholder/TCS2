@@ -39,7 +39,7 @@ class SortJob:
         else:
             raise ValueError("Can't start next job before previous job finished, or device cleaned up and reset.")
 
-    def pause():
+    def pause(self):
         if not self.stopped and not self.finished:
             if not self.paused:
                 self.paused = True
@@ -51,7 +51,7 @@ class SortJob:
         else:
             raise ValueError("Cannot pause a stopped or finished job.")
 
-    def resume():
+    def resume(self):
         if not self.stopped and not self.finished:
             if self.paused:
                 self.paused = False
@@ -63,7 +63,7 @@ class SortJob:
         else:
             raise ValueError("Cannot resume a stopped or finished job.")
 
-    def getUpdate():
+    def getUpdate(self):
         if not self.stopped:
             update = {}
             update["progress"]       = self.progress
@@ -74,7 +74,7 @@ class SortJob:
         else:
             raise ValueError("Cannot get execution update from a stopped job.")
 
-    def getOperatingState():
+    def getOperatingState(self):
         runStates = []
         if not self.stopped and not self.finished:
             if self.paused:
@@ -92,7 +92,7 @@ class SortJob:
 
         return runStates
 
-    def getTimeStats():
+    def getTimeStats(self):
         timeStats = {}
         timeStats["startDate"]       = self.startDate
         timeStats["expectedEndDate"] = self.expectedEndDate()
@@ -107,14 +107,14 @@ class SortJob:
     def inProgress():
         return not self.stopped and not self.finished
 
-    def cancel():
+    def cancel(self):
         if not self.stopped and not self.finished:
             self.cancelled = True
             self.notifyChildOfStateChange()
         else:
             raise ValueError("Cannot cancel a stopped or finished job.")
 
-    def stop():
+    def stop(self):
         if not self.finished:
             self.paused    = False
             self.cancelled = False
@@ -125,7 +125,7 @@ class SortJob:
             raise ValueError("Cannot stop finished job.")
 
     #reduce likelihood of race conditions
-    def notifyChildOfStateChange():
+    def notifyChildOfStateChange(self):
         self.stateFlag.set()
         self.responseFlag.wait()
         self.responseFlag.clear()
@@ -157,17 +157,19 @@ class SortJobThread(Thread):
         self.photographyQueue = Queue.queue()
         self.recognitionQueue = Queue.queue()
 
-    def run():
+    def run(self):
         device.photographAll(self.photographyQueue)
         recognizer.recognizeAll(self.photographyQueue,self.recognitionQueue)
 
         while True:
-            if device.finished and recognizer.finished:
+            if device.finished and self.photographyQueue.empty():
+                recognizer.stop()
                 break
 
             self.notFinishedLoopBody()
 
-        device.sort(Ordering.generateSortScores(self.sortParameters,self.recognitionQueue))
+        sortScores = Ordering.generateSortScores(self.sortParameters,list(self.recognitionQueue))
+        device.sort(sortScores)
 
         while True:
             if device.finished:
@@ -175,7 +177,7 @@ class SortJobThread(Thread):
 
             self.notFinishedLoopBody()
 
-    def onStateChange():
+    def onStateChange(self):
         stateFlag.clear()
 
         if self.paused and not self.previouslyPaused:
@@ -191,10 +193,12 @@ class SortJobThread(Thread):
         elif self.stopped:
             device.stop()
             recognizer.stop()
+            self.progress = 'Job stopped.'
+            return
 
         responseFlag.set()
 
-    def notFinishedLoopBody():
+    def notFinishedLoopBody(self):
         if stateFlag.is_set():
             self.onStateChange()
 

@@ -3,7 +3,8 @@ try:
 except:
     from PIL import Image
 
-import threading
+from threading import Thread,Event
+from multiprocessing import Process,Queue
 import pytesseract
 
 #keep working on recognition until it can run through the entire Kaladar set with 100% accuracy
@@ -11,10 +12,13 @@ import pytesseract
 class Recognizer:
     NUM_CORES = 4
 
-    def recognizeAllCards():
+    def stop(self):
         pass
 
-    def splitImageIntoFields():
+    def recognizeAll(self,filenameQueue,recognizedQueue):
+        pass
+
+    def splitImageIntoFields(self):
         pass
 
     @staticmethod
