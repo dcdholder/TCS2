@@ -140,7 +140,7 @@ class MockRecognizerRecognitionThread(Thread):
         while True:
             sleep(MockRecognizer.TIME_PER_CARD)
             if not self.paused and not self.stopped:
-                if not filenameQueue.empty()
+                if not filenameQueue.empty():
                     filenameQueue.get()
                     recognitionQueue.put(Card.CardFromNameAndSet("Island","Amonkhet"))
                     cardsRecognized+=1
