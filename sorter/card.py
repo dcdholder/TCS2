@@ -13,6 +13,10 @@ class Card:
         self.name = self.cardData['name']
 
     @staticmethod
+    def getAllCards():
+        return ALL_CARDS_BY_ID.values()
+
+    @staticmethod
     def getCardById(cardId):
         try:
             return ALL_CARDS_BY_ID[cardId]
