@@ -1,10 +1,22 @@
+from array import array
+
 class SubstringMatcher:
     def __init__(self,containingStrings):
         self.containingStrings = containingStrings
-        self.substringToContainingStrings = SubstringMatcher.substringToContainingStrings(containingStrings)
+
+        self.indexInDictionaryList        = SubstringMatcher.dictionaryStringToIndex(containingStrings)
+        self.substringToContainingStrings = SubstringMatcher.substringToContainingStrings(containingStrings,self.indexInDictionaryList)
 
     @staticmethod
-    def substringToContainingStrings(containingStrings):
+    def dictionaryStringToIndex(containingStrings):
+        indexInDictionaryList = {}
+        for i in range(len(containingStrings)):
+            indexInDictionaryList[containingStrings[i]] = i
+
+        return indexInDictionaryList
+
+    @staticmethod
+    def substringToContainingStrings(containingStrings,indexInDictionaryList):
         substringToContainingStrings = {}
 
         for containingString in containingStrings:
@@ -15,14 +27,12 @@ class SubstringMatcher:
                 try:
                     substringToContainingStrings[substring]
                 except KeyError:
-                    substringToContainingStrings[substring] = {}
+                    substringToContainingStrings[substring] = array('i')
 
-                try:
-                    substringToContainingStrings[substring][containingString]
-                except KeyError:
-                    substringToContainingStrings[substring][containingString] = 0
+                substringToContainingStrings[substring].append(indexInDictionaryList[containingString])
 
-                substringToContainingStrings[substring][containingString]+=1
+        for substring in substringToContainingStrings.keys():
+            substringToContainingStrings[substring] = array('i',list(set(substringToContainingStrings[substring])))
 
         return substringToContainingStrings
 
@@ -40,8 +50,8 @@ class SubstringMatcher:
         for spellcheckSubstring in spellcheckSubstrings:
             if spellcheckSubstring!=SubstringWheel.newlineChar:
                 try:
-                    for matchingString in self.substringToContainingStrings[spellcheckSubstring].keys():
-                        stringToMatchingNumerator[matchingString]+=len(spellcheckSubstring)*self.substringToContainingStrings[spellcheckSubstring][matchingString]
+                    for matchingStringIndex in self.substringToContainingStrings[spellcheckSubstring]:
+                        stringToMatchingNumerator[self.containingStrings[matchingStringIndex]]+=len(spellcheckSubstring)
                 except KeyError:
                     pass
 
@@ -58,8 +68,6 @@ class SubstringMatcher:
         for dictionaryString in self.containingStrings:
             stringToMatchingScore[dictionaryString] = stringToMatchingNumerator[dictionaryString]/float(stringToMatchingDenominator[dictionaryString])
 
-
-        #TODO: figure out why the perfect matching score is not exactly 1.0 yet
         return stringToMatchingScore
 
     def matchesAndScores(self,stringToSpellcheck):
