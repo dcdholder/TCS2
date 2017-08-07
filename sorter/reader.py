@@ -31,7 +31,7 @@ class SubstringMatcher:
 
                 substringToContainingStrings[substring].append(indexInDictionaryList[containingString])
 
-        for substring in substringToContainingStrings.keys():
+        for substring in substringToContainingStrings:
             substringToContainingStrings[substring] = array('i',list(set(substringToContainingStrings[substring])))
 
         return substringToContainingStrings
@@ -75,7 +75,7 @@ class SubstringMatcher:
 
         strings = []
         scores  = []
-        for string in matchingScoreDict.keys():
+        for string in matchingScoreDict:
             strings.append(string)
             scores.append(matchingScoreDict[string])
 
